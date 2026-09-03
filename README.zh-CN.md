@@ -97,7 +97,7 @@ Armijo 回溯线搜索 + 投影梯度约束，并使用 **4 组多起点初值**
 ├── analysis/   离线分析与图表生成（pandas / scipy / matplotlib）
 ├── assets/     README 使用的图表、原理图与应用截图
 ├── data/       真实路测数据样例（953 条，CSV）
-├── docs/       完整研究报告（Markdown + Word）及报告生成脚本
+├── docs/       研究报告（Markdown + Word）+ 算法详解（算法详解.md）及报告生成脚本
 └── download/   可直接安装的 APK
 ```
 
@@ -170,10 +170,13 @@ python analysis/analyze_pci199.py    # 对内置实测数据做联合估计
 python analysis/plot_pci199.py       # 重新生成 assets/pci199_analysis.png
 ```
 
-## 研究报告
+## 研究报告与算法文档
 
 完整研究内容（问题分析、算法设计、仿真结果、工程部署建议）见
 `docs/单基站天线方向图未知_定位研究报告.md` 及配套 Word 文档。
+算法的详细规格说明——信号模型公式、参数边界、Huber 损失、优化器、多起点策略、
+鲁棒性分析与未来改进（IRLS 两轮拟合、TA 距离约束等）——见
+[`docs/算法详解.md`](docs/算法详解.md)，与 `BaseStationEstimator.kt` 逐行对应。
 
 ## 免责声明
 

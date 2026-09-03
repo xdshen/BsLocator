@@ -99,7 +99,7 @@ distance–RSRP trend and bearing-dependent pattern attenuation:
 ├── analysis/   Offline analysis & figure generation (pandas / scipy / matplotlib)
 ├── assets/     Charts, diagrams and app screenshots used in this README
 ├── data/       Real field-measurement sample (953 records, CSV)
-├── docs/       Full research report (Markdown + Word) and report generators
+├── docs/       Research report (Markdown + Word) + detailed algorithm doc (算法详解.md)
 └── download/   Ready-to-install APK
 ```
 
@@ -179,11 +179,15 @@ python analysis/analyze_pci199.py    # joint estimation on the bundled field dat
 python analysis/plot_pci199.py       # regenerates assets/pci199_analysis.png
 ```
 
-## Research report
+## Research report & algorithm documentation
 
 The complete study (problem analysis, algorithm design, simulation results, deployment
 guidelines) is in `docs/单基站天线方向图未知_定位研究报告.md` (Chinese) and the
-companion Word document.
+companion Word document. The detailed algorithm specification — signal model formulas,
+parameter bounds, Huber loss, optimizer, multi-start strategy, robustness analysis and
+future improvements (IRLS two-round fitting, TA constraints, …) — is in
+[`docs/算法详解.md`](docs/算法详解.md), mapped line-by-line to
+`BaseStationEstimator.kt`.
 
 ## Disclaimer
 
