@@ -2,6 +2,9 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
+**[⬇ Download the APK — install on your phone directly](download/BsLocator-v1.0-debug.apk)**
+(Android 8.0+, ~40 MB, debug-signed)
+
 > Reverse-engineer the location **and** the antenna radiation pattern of an LTE/NR base station
 > from nothing but a walk-around drive test: GPS + RSRP measurements, collected by this Android app,
 > solved by joint on-device optimization.
@@ -93,8 +96,57 @@ distance–RSRP trend and bearing-dependent pattern attenuation:
 ├── analysis/   Offline analysis & figure generation (pandas / scipy / matplotlib)
 ├── assets/     Charts, diagrams and app screenshots used in this README
 ├── data/       Real field-measurement sample (953 records, CSV)
-└── docs/       Full research report (Markdown + Word) and report generators
+├── docs/       Full research report (Markdown + Word) and report generators
+└── download/   Ready-to-install APK
 ```
+
+## Install & use the app
+
+### 1. Install
+
+1. Download **[BsLocator-v1.0-debug.apk](download/BsLocator-v1.0-debug.apk)**
+   (on the GitHub page, click the file, then **Download raw file**) — or just open this
+   repository on your phone's browser and tap the link
+2. Allow *Install unknown apps* for your browser/file manager when Android asks
+3. Open the app and grant the permissions it needs:
+   - **Location (precise)** — required for GPS fixes during the drive test
+   - **Phone / phone state** — required to read LTE/NR cell info (ECI, PCI, RSRP…)
+   - **Notifications** — so background estimation can report progress
+
+> Note: the published APK is built with the placeholder AMap key. Map tiles loaded fine in
+> our tests, but if the map stays blank on your device, build from source with your own key
+> (see *Getting started → Android app* below).
+
+### 2. Collect measurements (采集)
+
+1. Go outdoors near the target base station; the more you can **walk around it (ideally
+   360°, near + far distances)**, the better the result
+2. Open the **采集** tab and tap **开始采集** — a foreground service keeps recording even
+   with the screen off
+3. Walk your route; each sample (GPS + serving-cell signal) is stored automatically
+4. Tap **停止采集** when done. Aim for **50+ samples per cell**; below ~20 the estimate
+   is unreliable
+
+### 3. Run the estimation (推断)
+
+1. Open the **推断** tab, pick the target cell (ECI/PCI) from the dropdown
+2. Tap **开始推断（后台运行）** — you can lock the screen; a notification arrives on
+   completion. To estimate every cell seen in selected sessions at once, tick sessions in
+   the **日志** tab first, then use the batch button
+3. The result card shows the estimated **position, azimuth, beamwidth, downtilt, height,
+   path-loss exponent** and the fit **RMSE**
+
+### 4. Inspect on the map (地图)
+
+- Tick sessions in the **日志** tab to overlay their tracks on the **地图** tab
+- Estimated base stations appear as a **red star** with a translucent **main-lobe sector**
+- Tap any marker for full measurement / estimation details
+
+### 5. Export your data
+
+- Single session: **日志** tab → export icon → CSV or JSON
+- Estimation + its source measurements: the button at the bottom of the **推断** result card
+- Exported files can be fed directly into the scripts under `analysis/`
 
 ## Getting started
 

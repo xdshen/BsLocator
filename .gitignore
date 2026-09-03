@@ -12,6 +12,7 @@ local.properties
 captures/
 .externalNativeBuild/
 *.apk
+!download/*.apk
 *.aab
 *.keystore
 !gradle-wrapper.jar
