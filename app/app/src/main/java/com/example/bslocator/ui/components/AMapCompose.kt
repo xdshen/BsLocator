@@ -490,19 +490,36 @@ private fun drawBsResult(
     )
 }
 /**
- * 计算扇区半径：取基站到最远测量点距离的 1.5 倍，最小 100m
+ * 计算扇区半径：以主瓣覆盖范围内测量点距离的 90 分位数为基准（×1.2），
+ * 钳制在 100m ~ 2000m，避免个别远距离点把扇区画得远超实际覆盖范围
  */
 private fun calculateSectorRadius(
     result: BaseStationEstimator.EstimationResult,
     measurements: List<Measurement>
 ): Double {
     if (measurements.isEmpty()) return 200.0
-    var maxDist = 0.0
-    for (m in measurements) {
-        val d = haversineDistance(result.bsLatitude, result.bsLongitude, m.latitude, m.longitude)
-        if (d > maxDist) maxDist = d
+
+    fun bearingTo(m: Measurement): Double {
+        val lat1 = Math.toRadians(result.bsLatitude)
+        val lat2 = Math.toRadians(m.latitude)
+        val dLng = Math.toRadians(m.longitude - result.bsLongitude)
+        val y = Math.sin(dLng) * Math.cos(lat2)
+        val x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng)
+        return (Math.toDegrees(Math.atan2(y, x)) + 360.0) % 360.0
     }
-    return (maxDist * 1.5).coerceAtLeast(100.0)
+
+    val halfBw = result.beamwidthDeg / 2.0
+    val all = measurements.map { m ->
+        val d = haversineDistance(result.bsLatitude, result.bsLongitude, m.latitude, m.longitude)
+        var dAz = Math.abs(bearingTo(m) - result.azimuthDeg) % 360.0
+        if (dAz > 180.0) dAz = 360.0 - dAz
+        d to dAz
+    }
+    val mainLobe = all.filter { (_, dAz) -> dAz <= halfBw }.map { it.first }
+    val dists = (if (mainLobe.isNotEmpty()) mainLobe else all.map { it.first }).sorted()
+
+    val p90 = dists[(dists.size * 0.9).toInt().coerceAtMost(dists.size - 1)]
+    return (p90 * 1.2).coerceIn(100.0, 2000.0)
 }
 
 /**
