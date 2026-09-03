@@ -50,6 +50,7 @@ center, inverse-distance weighted) — the run with the best RMSE wins.
 <details>
 <summary>More screenshots</summary>
 
+![help](assets/screenshots/help.png)
 ![map zoom](assets/screenshots/map_estimate_zoom.png)
 ![map wide](assets/screenshots/map.png)
 
@@ -86,6 +87,8 @@ distance–RSRP trend and bearing-dependent pattern attenuation:
 - **Map visualization** — AMap (Gaode) overlay: color-coded measurement tracks, estimated
   base station marker, translucent main-lobe sector polygon, WGS-84 ↔ GCJ-02 conversion
 - **Session management** — multi-select sessions, CSV import/export (SAF), JSON export
+- **In-app help** — permission guide plus per-vendor background-keep-alive instructions
+  with one-tap shortcuts to system settings
 - **Offline analysis** — Python scripts reproduce the estimation and generate report charts
 
 ## Repository structure
@@ -112,10 +115,19 @@ distance–RSRP trend and bearing-dependent pattern attenuation:
    - **Location (precise)** — required for GPS fixes during the drive test
    - **Phone / phone state** — required to read LTE/NR cell info (ECI, PCI, RSRP…)
    - **Notifications** — so background estimation can report progress
+4. **Keep the app alive in the background (important on Chinese ROMs):**
+   vivo / OPPO / Xiaomi / Huawei aggressively kill background apps, which would silently
+   stop a long drive test. Before collecting:
+   - Add BsLocator to the **battery-optimization whitelist** ("Don't optimize")
+   - Allow **auto-launch / background activity** for the app (system settings path varies
+     by vendor)
+   - **Lock the app** in the recent-tasks view (pull down its card)
+   - Disable battery-saver mode during the test
+   
+   The in-app **帮助 (Help)** tab lists the exact per-vendor settings paths and offers
+   one-tap shortcuts to the relevant system settings pages — check it on first launch.
 
-> Note: the published APK is built with the placeholder AMap key. Map tiles loaded fine in
-> our tests, but if the map stays blank on your device, build from source with your own key
-> (see *Getting started → Android app* below).
+The map works out of the box — no API key or other configuration is needed.
 
 ### 2. Collect measurements (采集)
 

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.Book
+import androidx.compose.material.icons.filled.Help
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material3.Icon
@@ -30,6 +31,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.bslocator.ui.screens.EstimateScreen
+import com.example.bslocator.ui.screens.HelpScreen
 import com.example.bslocator.ui.screens.LogsScreen
 import com.example.bslocator.ui.screens.MapScreen
 import com.example.bslocator.ui.screens.MeasureScreen
@@ -90,12 +92,13 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
     data object Map : Screen("map", "地图", Icons.Default.Place)
     data object Logs : Screen("logs", "日志", Icons.Default.Book)
     data object Estimate : Screen("estimate", "推断", Icons.Default.Analytics)
+    data object Help : Screen("help", "帮助", Icons.Default.Help)
 }
 
 @Composable
 fun BsLocatorMainApp() {
     val navController = rememberNavController()
-    val screens = listOf(Screen.Measure, Screen.Map, Screen.Logs, Screen.Estimate)
+    val screens = listOf(Screen.Measure, Screen.Map, Screen.Logs, Screen.Estimate, Screen.Help)
     val viewModel: MainViewModel = viewModel(
         factory = androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.getInstance(
             androidx.compose.ui.platform.LocalContext.current.applicationContext as android.app.Application
@@ -136,6 +139,7 @@ fun BsLocatorMainApp() {
             composable(Screen.Map.route) { MapScreen(viewModel) }
             composable(Screen.Logs.route) { LogsScreen(viewModel) }
             composable(Screen.Estimate.route) { EstimateScreen(viewModel) }
+            composable(Screen.Help.route) { HelpScreen() }
         }
     }
 }
