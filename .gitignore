@@ -1,0 +1,26 @@
+# ---- Local development leftovers (kept locally, never published)
+_archive/
+
+# ---- Android / Gradle
+.gradle/
+build/
+*/build/
+local.properties
+*.iml
+.idea/
+.cxx/
+captures/
+.externalNativeBuild/
+*.apk
+*.aab
+*.keystore
+!gradle-wrapper.jar
+
+# ---- Python
+__pycache__/
+*.pyc
+.venv/
+
+# ---- OS
+Thumbs.db
+.DS_Store
