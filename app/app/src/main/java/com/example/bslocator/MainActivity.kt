@@ -117,6 +117,9 @@ fun BsLocatorMainApp() {
                         label = { Text(screen.title) },
                         selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true,
                         onClick = {
+                            // 已在当前 tab 时不做任何事：重复 navigate 会销毁并重建
+                            // 目的地（MapView 重建导致已绘制的覆盖物丢失）
+                            if (currentDestination?.route == screen.route) return@NavigationBarItem
                             navController.navigate(screen.route) {
                                 popUpTo(navController.graph.findStartDestination().id) {
                                     saveState = true
@@ -136,7 +139,22 @@ fun BsLocatorMainApp() {
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(Screen.Measure.route) { MeasureScreen(viewModel) }
-            composable(Screen.Map.route) { MapScreen(viewModel) }
+            composable(Screen.Map.route) {
+                MapScreen(
+                    viewModel,
+                    onEstimateRequest = { eci ->
+                        viewModel.selectEci(eci)
+                        viewModel.runEstimation(eci)
+                        navController.navigate(Screen.Estimate.route) {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    }
+                )
+            }
             composable(Screen.Logs.route) { LogsScreen(viewModel) }
             composable(Screen.Estimate.route) { EstimateScreen(viewModel) }
             composable(Screen.Help.route) { HelpScreen() }

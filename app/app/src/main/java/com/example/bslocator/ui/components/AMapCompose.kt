@@ -10,6 +10,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -28,6 +29,7 @@ import com.amap.api.maps.model.Marker
 import com.amap.api.maps.model.MarkerOptions
 import com.amap.api.maps.model.MyLocationStyle
 import com.amap.api.maps.model.PolygonOptions
+import com.amap.api.maps.model.Polyline
 import com.amap.api.maps.model.PolylineOptions
 import kotlin.math.*
 import com.example.bslocator.algorithm.BaseStationEstimator
@@ -37,11 +39,15 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
-// 追踪上一次绘制的数据，避免不必要的重绘
-private var lastDrawnMeasurements: List<Measurement>? = null
-private var lastDrawnBsResults: List<BaseStationEstimator.EstimationResult>? = null
-
-private var activeInfoWindowMarker: Marker? = null
+// 每个 MapView 实例独立的绘制状态（remember 持有），避免文件级全局变量
+// 在 tab 切换重建 MapView 后误判"数据未变化"而跳过重绘
+private class MapOverlayState {
+    var measurements: List<Measurement>? = null
+    var bsResults: List<BaseStationEstimator.EstimationResult>? = null
+    var activeMarker: Marker? = null
+    var trackPolyline: Polyline? = null
+    val bitmapCache = mutableMapOf<Int, Bitmap>()
+}
 
 private val BsResultColors = listOf(
     0xFFFF5722, // 0 橙红
@@ -104,15 +110,30 @@ fun AMapCompose(
     modifier: Modifier = Modifier,
     measurements: List<Measurement> = emptyList(),
     bsResults: List<BaseStationEstimator.EstimationResult> = emptyList(),
+    onEstimateRequest: (Long) -> Unit = {},
     onMapReady: ((AMap) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
     val mapView = remember { MapView(context) }
+    val overlayState = remember { MapOverlayState() }
+    // 地图初始化是异步的：map 就绪前 AndroidView 的 update 块不会执行任何绘制，
+    // 就绪后用这个状态触发一次重组，保证数据必定被画上（修复重复进入地图页后
+    // 覆盖物丢失的问题）
+    val mapReady = remember { mutableStateOf(false) }
 
     DisposableEffect(lifecycleOwner) {
         mapView.onCreate(null)
+        val handler = android.os.Handler(android.os.Looper.getMainLooper())
+        val readinessCheck = object : Runnable {
+            override fun run() {
+                if (mapView.map != null) {
+                    mapReady.value = true
+                } else handler.postDelayed(this, 200)
+            }
+        }
+        handler.post(readinessCheck)
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_RESUME -> mapView.onResume()
@@ -122,6 +143,7 @@ fun AMapCompose(
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
+            handler.removeCallbacks(readinessCheck)
             lifecycleOwner.lifecycle.removeObserver(observer)
             mapView.onDestroy()
         }
@@ -131,24 +153,22 @@ fun AMapCompose(
         factory = { mapView },
         modifier = modifier
     ) { view ->
-        view.map?.let { aMap ->
-            configureMap(aMap, context)
-
-            val measurementsChanged = lastDrawnMeasurements !== measurements
-            val bsResultsChanged = lastDrawnBsResults !== bsResults
-
-            if (measurementsChanged || bsResultsChanged) {
-                drawAllOverlays(aMap, measurements, bsResults, context)
-                lastDrawnMeasurements = measurements
-                lastDrawnBsResults = bsResults
+        if (mapReady.value) {
+            view.map?.let { aMap ->
+                configureMap(aMap, context, overlayState, onEstimateRequest)
+                syncOverlays(aMap, overlayState, measurements, bsResults, context)
+                onMapReady?.invoke(aMap)
             }
-
-            onMapReady?.invoke(aMap)
         }
     }
 }
 
-private fun configureMap(aMap: AMap, context: Context) {
+private fun configureMap(
+    aMap: AMap,
+    context: Context,
+    state: MapOverlayState,
+    onEstimateRequest: (Long) -> Unit
+) {
     val myLocationStyle = MyLocationStyle()
         .myLocationType(MyLocationStyle.LOCATION_TYPE_LOCATION_ROTATE_NO_CENTER)
         .interval(1000)
@@ -171,25 +191,30 @@ private fun configureMap(aMap: AMap, context: Context) {
     aMap.setOnMarkerClickListener { marker ->
         if (marker.isInfoWindowShown) {
             marker.hideInfoWindow()
-            activeInfoWindowMarker = null
+            state.activeMarker = null
         } else {
-            activeInfoWindowMarker?.hideInfoWindow()
+            state.activeMarker?.hideInfoWindow()
             marker.showInfoWindow()
-            activeInfoWindowMarker = marker
+            state.activeMarker = marker
         }
         true
     }
 
     // 点击地图空白处：隐藏 InfoWindow
     aMap.setOnMapClickListener {
-        activeInfoWindowMarker?.hideInfoWindow()
-        activeInfoWindowMarker = null
+        state.activeMarker?.hideInfoWindow()
+        state.activeMarker = null
     }
 
-    // 点击 InfoWindow 本身也隐藏
+    // 点击 InfoWindow：测量点 → 跳推断；基站 → 关闭
     aMap.setOnInfoWindowClickListener { marker ->
+        val infoMap = parseInfoString(marker.`object` as? String ?: "")
+        val eci = infoMap["eci"]?.toLongOrNull()
+        if (eci != null && eci >= 0 && !infoMap.containsKey("bs_info")) {
+            onEstimateRequest(eci)
+        }
         marker.hideInfoWindow()
-        activeInfoWindowMarker = null
+        state.activeMarker = null
     }
 }
 
@@ -208,7 +233,7 @@ private class MeasurementInfoWindowAdapter(private val context: Context) : AMap.
 
     private fun createInfoView(marker: Marker): View {
         val objectStr = marker.`object` as? String ?: ""
-        val infoMap = parseInfo(objectStr)
+        val infoMap = parseInfoString(objectStr)
 
         // 解析颜色值（从字符串转 Int）
         val colorStr = infoMap["color"] ?: ""
@@ -283,21 +308,19 @@ private class MeasurementInfoWindowAdapter(private val context: Context) : AMap.
             addRow("GPS精度", infoMap["accuracy"] ?: "--")
             addRow("速度", infoMap["speed"] ?: "--")
             addRow("时间", infoMap["time"] ?: "--")
+
+            // 操作入口（InfoWindow 在高德 SDK 中渲染为静态视图，
+            // 按钮区域由 OnInfoWindowClickListener 统一响应）
+            val action = TextView(context).apply {
+                text = "▶ 推断该基站位置"
+                textSize = 11f
+                setTextColor(0xFF64B5F6.toInt())
+                setPadding(0, dp(4), 0, dp(1))
+            }
+            container.addView(action)
         }
 
         return container
-    }
-
-    private fun parseInfo(infoStr: String): Map<String, String> {
-        val result = mutableMapOf<String, String>()
-        if (infoStr.isEmpty()) return result
-        infoStr.split("|").forEach { pair ->
-            val parts = pair.split("=", limit = 2)
-            if (parts.size == 2) {
-                result[parts[0].trim()] = parts[1].trim()
-            }
-        }
-        return result
     }
 
     private fun dp(px: Int): Int {
@@ -314,107 +337,157 @@ private class MeasurementInfoWindowAdapter(private val context: Context) : AMap.
     }
 }
 
+private fun parseInfoString(infoStr: String): Map<String, String> {
+    val result = mutableMapOf<String, String>()
+    if (infoStr.isEmpty()) return result
+    infoStr.split("|").forEach { pair ->
+        val parts = pair.split("=", limit = 2)
+        if (parts.size == 2) {
+            result[parts[0].trim()] = parts[1].trim()
+        }
+    }
+    return result
+}
+
 /**
- * 统一绘制所有覆盖物（测量点 + 基站推断结果），仅在数据变化时调用
+ * 同步覆盖物：数据仅追加时增量补画（采集过程中每 0.5~2s 刷新一次，
+ * 全量 clear 重绘会导致闪烁和卡顿）；数据换批或推断结果变化时全量重绘
  */
-private fun drawAllOverlays(
+private fun syncOverlays(
     aMap: AMap,
+    state: MapOverlayState,
     measurements: List<Measurement>,
     bsResults: List<BaseStationEstimator.EstimationResult>,
     context: Context
 ) {
-    aMap.clear()
-    activeInfoWindowMarker = null
+    val old = state.measurements
+    // 推断结果用结构化比较：ViewModel 里是原地清空的 SnapshotStateList，
+    // 引用不变，=== 判不出"被清空"；state 里存副本避免跟随原列表变化
+    val bsChanged = state.bsResults != bsResults
+    val isAppendOnly = old != null && measurements.size >= old.size &&
+            (old.isEmpty() || old.last() === measurements[old.size - 1])
 
-    if (measurements.isEmpty() && bsResults.isEmpty()) return
+    if (old == null || bsChanged || !isAppendOnly) {
+        // ---- 全量重绘 ----
+        aMap.clear()
+        state.activeMarker = null
+        state.bitmapCache.clear()
 
-    // ---- 1. 绘制轨迹线（原始点或简化后）----
-    if (measurements.size >= 2) {
-        val sorted = measurements.sortedBy { it.timestamp }
-        val linePoints = if (sorted.size > 600) {
-            // 轨迹线简化：超过 600 点时均匀采样到 500
-            val step = sorted.size / 500.0
-            (0 until 500).map { i -> sorted[(i * step).toInt().coerceAtMost(sorted.lastIndex)] }
-        } else sorted
-
-        val polylinePoints = linePoints.map { m ->
-            val gcj = CoordinateTransform.wgs84ToGcj02(m.latitude, m.longitude)
-            LatLng(gcj.lat, gcj.lng)
+        if (measurements.isNotEmpty()) {
+            drawTrack(aMap, state, measurements)
+            measurements.forEach { addMeasurementMarker(aMap, state, it, context) }
+            autoZoomToMeasurements(aMap, measurements)
         }
-        aMap.addPolyline(
-            PolylineOptions()
-                .addAll(polylinePoints)
-                .width(4f)
-                .color(0xFF448AFF.toInt())
-                .geodesic(true)
-        )
+        bsResults.forEachIndexed { index, result ->
+            drawBsResult(aMap, result, measurements, context, index)
+        }
+        state.measurements = measurements
+        state.bsResults = bsResults.toList()
+    } else if (measurements.size > old.size) {
+        // ---- 增量追加：只画新增点 + 更新轨迹线 ----
+        for (i in old.size until measurements.size) {
+            addMeasurementMarker(aMap, state, measurements[i], context)
+        }
+        drawTrack(aMap, state, measurements)
+        state.measurements = measurements
+    }
+}
+
+/**
+ * 绘制轨迹线：增量场景下先移除旧轨迹再画新轨迹；
+ * 全量重绘场景（aMap.clear() 之后）旧引用已失效，remove() 安全无副作用
+ */
+private fun drawTrack(aMap: AMap, state: MapOverlayState, measurements: List<Measurement>) {
+    try {
+        state.trackPolyline?.remove()
+    } catch (_: Exception) { }
+    state.trackPolyline = null
+    if (measurements.size < 2) return
+
+    val sorted = measurements.sortedBy { it.timestamp }
+    val linePoints = if (sorted.size > 600) {
+        // 轨迹线简化：超过 600 点时均匀采样到 500
+        val step = sorted.size / 500.0
+        (0 until 500).map { i -> sorted[(i * step).toInt().coerceAtMost(sorted.lastIndex)] }
+    } else sorted
+
+    val polylinePoints = linePoints.map { m ->
+        val gcj = CoordinateTransform.wgs84ToGcj02(m.latitude, m.longitude)
+        LatLng(gcj.lat, gcj.lng)
+    }
+    state.trackPolyline = aMap.addPolyline(
+        PolylineOptions()
+            .addAll(polylinePoints)
+            .width(4f)
+            .color(0xFF448AFF.toInt())
+            .geodesic(true)
+    )
+}
+
+private fun addMeasurementMarker(
+    aMap: AMap,
+    state: MapOverlayState,
+    m: Measurement,
+    context: Context
+) {
+    val gcj = CoordinateTransform.wgs84ToGcj02(m.latitude, m.longitude)
+    val latLng = LatLng(gcj.lat, gcj.lng)
+
+    val baseColor = getCellColor(m.eci)
+    val brightness = getSignalBrightness(m.rsrp)
+    val finalColor = composeColor(baseColor, brightness)
+
+    val bitmap = state.bitmapCache.getOrPut(finalColor) {
+        createCircleMarkerBitmap(context, finalColor, 8)
     }
 
-    // ---- 2. 绘制测量点标记（全部真实点，小尺寸）----
-    if (measurements.isNotEmpty()) {
-        val builder = LatLngBounds.Builder()
-        val markerBitmapCache = mutableMapOf<Int, Bitmap>()
+    val eciLabel = if (m.eci >= 0) "ECI ${m.eci}" else "未知基站"
+    val title = "$eciLabel   PCI ${m.pci}"
 
+    val infoStr = buildString {
+        append("eci=${m.eci}|")
+        append("rsrp=${m.rsrp} dBm|")
+        append("rsrq=${m.rsrq} dB|")
+        append("sinr=${m.rssnr} dB|")
+        append("cqi=${m.cqi}|")
+        append("earfcn=${m.earfcn}|")
+        append("tac=${m.tac}|")
+        append("coord=${m.latitude.format(5)}, ${m.longitude.format(5)}|")
+        append("accuracy=±${m.gpsAccuracy}m|")
+        append("speed=${m.speed} m/s|")
+        append("time=${formatTime(m.timestamp)}|")
+        append("color=$finalColor")
+    }
+
+    aMap.addMarker(
+        MarkerOptions()
+            .position(latLng)
+            .icon(BitmapDescriptorFactory.fromBitmap(bitmap))
+            .title(title)
+            .draggable(false)
+    )?.apply { `object` = infoStr }
+}
+
+/**
+ * 自动缩放（仅在首次全量绘制时执行，避免打断用户手动缩放）
+ */
+private fun autoZoomToMeasurements(aMap: AMap, measurements: List<Measurement>) {
+    if (aMap.cameraPosition != null && aMap.cameraPosition.zoom >= 3f) return
+    try {
+        val builder = LatLngBounds.Builder()
         measurements.forEach { m ->
             val gcj = CoordinateTransform.wgs84ToGcj02(m.latitude, m.longitude)
-            val latLng = LatLng(gcj.lat, gcj.lng)
-            builder.include(latLng)
-
-            val baseColor = getCellColor(m.eci)
-            val brightness = getSignalBrightness(m.rsrp)
-            val finalColor = composeColor(baseColor, brightness)
-
-            val bitmap = markerBitmapCache.getOrPut(finalColor) {
-                createCircleMarkerBitmap(context, finalColor, 8)
-            }
-
-            val eciLabel = if (m.eci >= 0) "ECI ${m.eci}" else "未知基站"
-            val title = "$eciLabel   PCI ${m.pci}"
-
-            val infoStr = buildString {
-                append("rsrp=${m.rsrp} dBm|")
-                append("rsrq=${m.rsrq} dB|")
-                append("sinr=${m.rssnr} dB|")
-                append("cqi=${m.cqi}|")
-                append("earfcn=${m.earfcn}|")
-                append("tac=${m.tac}|")
-                append("coord=${m.latitude.format(5)}, ${m.longitude.format(5)}|")
-                append("accuracy=±${m.gpsAccuracy}m|")
-                append("speed=${m.speed} m/s|")
-                append("time=${formatTime(m.timestamp)}|")
-                append("color=$finalColor")
-            }
-
-            aMap.addMarker(
-                MarkerOptions()
-                    .position(latLng)
-                    .icon(BitmapDescriptorFactory.fromBitmap(bitmap))
-                    .title(title)
-                    .draggable(false)
-            )?.apply { `object` = infoStr }
+            builder.include(LatLng(gcj.lat, gcj.lng))
         }
-
-        // 自动缩放（仅在首次加载时执行，避免打断用户手动缩放）
-        if (aMap.cameraPosition == null || aMap.cameraPosition.zoom < 3f) {
-            try {
-                val bounds = builder.build()
-                aMap.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 120))
-            } catch (_: Exception) {
-                val firstGcj = CoordinateTransform.wgs84ToGcj02(
-                    measurements.first().latitude,
-                    measurements.first().longitude
-                )
-                aMap.animateCamera(
-                    CameraUpdateFactory.newLatLngZoom(LatLng(firstGcj.lat, firstGcj.lng), 17f)
-                )
-            }
-        }
-    }
-
-
-    // ---- 3. 绘制基站推断结果 ----
-    bsResults.forEachIndexed { index, result ->
-        drawBsResult(aMap, result, measurements, context, index)
+        aMap.animateCamera(CameraUpdateFactory.newLatLngBounds(builder.build(), 120))
+    } catch (_: Exception) {
+        val firstGcj = CoordinateTransform.wgs84ToGcj02(
+            measurements.first().latitude,
+            measurements.first().longitude
+        )
+        aMap.animateCamera(
+            CameraUpdateFactory.newLatLngZoom(LatLng(firstGcj.lat, firstGcj.lng), 17f)
+        )
     }
 }
 

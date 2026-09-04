@@ -185,3 +185,7 @@ python analysis/plot_pci199.py       # 重新生成 assets/pci199_analysis.png
 ## 许可证
 
 尚未添加 LICENSE 文件——在添加之前，作者保留所有权利。
+
+## 更新日志
+
+完整的变更记录见 [CHANGELOG.md](CHANGELOG.md)。

@@ -197,3 +197,7 @@ please use it responsibly.
 ## License
 
 No license file yet — all rights reserved by the author until one is added.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for the full change history.
