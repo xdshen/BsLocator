@@ -111,6 +111,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _workProgressMessage = mutableStateOf<String>("")
     val workProgressMessage: State<String> = _workProgressMessage
 
+    // 批量推断进度：已完成个数 / 总个数（0/0 表示无进度信息，如单基站推断）
+    private val _batchDone = mutableStateOf(0)
+    val batchDone: State<Int> = _batchDone
+
+    private val _batchTotal = mutableStateOf(0)
+    val batchTotal: State<Int> = _batchTotal
+
     // Export states
     private val _isExporting = mutableStateOf(false)
     val isExporting: State<Boolean> = _isExporting
@@ -416,6 +423,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun runEstimation(eci: Long) {
         _workState.value = WorkInfo.State.ENQUEUED
         _workError.value = null
+        _batchDone.value = 0
+        _batchTotal.value = 0
         _workProgressMessage.value = "任务已提交，正在排队..."
 
         val inputData = Data.Builder()
@@ -520,6 +529,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _workState.value = null
         _workError.value = null
         _workProgressMessage.value = ""
+        _batchDone.value = 0
+        _batchTotal.value = 0
+    }
+
+    /**
+     * 取消当前正在运行的推断任务（单基站或批量）
+     */
+    fun cancelEstimation() {
+        currentWorkId?.let { id ->
+            workManager.cancelWorkById(id)
+            _workProgressMessage.value = "正在取消..."
+        }
     }
 
     fun dismissExportMessage() {
@@ -681,6 +702,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         _workState.value = WorkInfo.State.ENQUEUED
         _workError.value = null
+        _batchDone.value = 0
+        _batchTotal.value = 0
         _workProgressMessage.value = "批量任务已提交，正在排队..."
 
         val inputData = androidx.work.Data.Builder()
@@ -716,7 +739,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         _workProgressMessage.value = "批量任务已排队，等待系统调度..."
                     }
                     WorkInfo.State.RUNNING -> {
-                        _workProgressMessage.value = "正在批量推断中... (即使切到后台也会继续)"
+                        val done = info.progress.getInt(
+                            com.example.bslocator.worker.BatchEstimationWorker.PROGRESS_DONE, 0)
+                        val total = info.progress.getInt(
+                            com.example.bslocator.worker.BatchEstimationWorker.PROGRESS_TOTAL, 0)
+                        val curEci = info.progress.getLong(
+                            com.example.bslocator.worker.BatchEstimationWorker.PROGRESS_CURRENT_ECI, -1L)
+                        if (total > 0) {
+                            _batchDone.value = done
+                            _batchTotal.value = total
+                            _workProgressMessage.value =
+                                "正在推断第 $done/$total 个基站 (ECI $curEci)，切到后台也会继续"
+                        } else {
+                            _workProgressMessage.value = "正在批量推断中... (即使切到后台也会继续)"
+                        }
                     }
                     WorkInfo.State.SUCCEEDED -> {
                         _workProgressMessage.value = "批量推断完成！"

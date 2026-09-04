@@ -21,6 +21,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.PlayArrow
@@ -235,7 +236,13 @@ fun EstimateScreen(viewModel: MainViewModel) {
                 enter = fadeIn(),
                 exit = fadeOut()
             ) {
-                WorkStatusCard(state = workState, message = workProgress)
+                WorkStatusCard(
+                    state = workState,
+                    message = workProgress,
+                    done = viewModel.batchDone.value,
+                    total = viewModel.batchTotal.value,
+                    onCancel = { viewModel.cancelEstimation() }
+                )
             }
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -346,7 +353,13 @@ private fun ExportFormatChip(
 }
 
 @Composable
-fun WorkStatusCard(state: WorkInfo.State?, message: String) {
+fun WorkStatusCard(
+    state: WorkInfo.State?,
+    message: String,
+    done: Int = 0,
+    total: Int = 0,
+    onCancel: () -> Unit = {}
+) {
     val (icon, color, statusText) = when (state) {
         WorkInfo.State.ENQUEUED -> Triple(
             Icons.Default.Schedule, Color(0xFF2196F3), "等待中"
@@ -401,16 +414,41 @@ fun WorkStatusCard(state: WorkInfo.State?, message: String) {
 
             if (state == WorkInfo.State.RUNNING || state == WorkInfo.State.ENQUEUED) {
                 Spacer(modifier = Modifier.height(8.dp))
-                LinearProgressIndicator(
-                    modifier = Modifier.fillMaxWidth(),
-                    color = color
-                )
+                if (total > 0) {
+                    // 批量推断：确定性进度条 + 完成个数
+                    LinearProgressIndicator(
+                        progress = { done.toFloat() / total },
+                        modifier = Modifier.fillMaxWidth(),
+                        color = color
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "已完成 $done / $total 个基站",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = color
+                    )
+                } else {
+                    LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = color
+                    )
+                }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "提示: 可以锁屏或切换到其他 APP，推断完成后会发送通知",
                     fontSize = 11.sp,
                     color = Color.Gray
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = onCancel,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("取消推断")
+                }
             }
         }
     }

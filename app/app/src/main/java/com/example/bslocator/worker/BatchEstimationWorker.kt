@@ -34,6 +34,9 @@ class BatchEstimationWorker(
         const val OUTPUT_RESULTS_JSON = "results_json"
         const val OUTPUT_SUMMARY = "summary"
         const val OUTPUT_ERROR = "error"
+        const val PROGRESS_DONE = "progress_done"
+        const val PROGRESS_TOTAL = "progress_total"
+        const val PROGRESS_CURRENT_ECI = "progress_current_eci"
 
         private const val NOTIFICATION_CHANNEL_ID = "bslocator_batch_estimation"
         private const val FOREGROUND_NOTIFICATION_ID = 3001
@@ -45,7 +48,7 @@ class BatchEstimationWorker(
 
     override suspend fun doWork(): Result {
         val sessionIds = inputData.getLongArray(INPUT_SESSION_IDS) ?: longArrayOf()
-        if (sessionIds == null || sessionIds.isEmpty()) {
+        if (sessionIds.isEmpty()) {
             return Result.failure(
                 androidx.work.workDataOf(OUTPUT_ERROR to "未选择任何日志")
             )
@@ -83,15 +86,30 @@ class BatchEstimationWorker(
                 return Result.failure(androidx.work.workDataOf(OUTPUT_ERROR to msg))
             }
 
-            // 3. Run estimation for each ECI
+            // 3. Run estimation for each ECI (cooperative cancellation between cells)
             val results = mutableListOf<BatchResult>()
             val errors = mutableListOf<String>()
             val estimator = BaseStationEstimator()
             var processed = 0
+            val total = validGroups.size
+            var cancelled = false
 
             for ((eci, measurements) in validGroups) {
+                if (isStopped) {
+                    cancelled = true
+                    Log.i(TAG, "Batch estimation cancelled by user after $processed/$total")
+                    break
+                }
                 processed++
-                updateNotification("正在推断 ECI $eci... ($processed/${validGroups.size})")
+                // 上报进度：App 内进度条 + 通知栏确定性进度
+                setProgress(
+                    androidx.work.workDataOf(
+                        PROGRESS_DONE to processed,
+                        PROGRESS_TOTAL to total,
+                        PROGRESS_CURRENT_ECI to eci
+                    )
+                )
+                updateNotification("正在推断第 $processed/$total 个基站 (ECI $eci)...", processed, total)
 
                 val result = withContext(Dispatchers.Default) {
                     estimator.estimate(measurements)
@@ -108,14 +126,18 @@ class BatchEstimationWorker(
 
             // 4. Build output
             val summary = buildString {
-                append("成功推断 ${results.size} 个基站")
-                if (errors.isNotEmpty()) {
-                    append("，${errors.size} 个失败")
+                if (cancelled) {
+                    append("已取消：完成 $processed/$total，成功 ${results.size} 个")
+                } else {
+                    append("成功推断 ${results.size} 个基站")
+                    if (errors.isNotEmpty()) {
+                        append("，${errors.size} 个失败")
+                    }
                 }
             }
 
             if (results.isNotEmpty()) {
-                showCompletionNotification(results)
+                if (!cancelled) showCompletionNotification(results)
                 val resultsJson = Gson().toJson(results)
                 Result.success(
                     androidx.work.workDataOf(
@@ -124,7 +146,8 @@ class BatchEstimationWorker(
                     )
                 )
             } else {
-                val msg = "所有基站推断均失败: ${errors.joinToString(", ")}"
+                val msg = if (cancelled) "批量推断已取消，无完成结果"
+                          else "所有基站推断均失败: ${errors.joinToString(", ")}"
                 updateNotification(msg, isError = true)
                 Result.failure(androidx.work.workDataOf(OUTPUT_ERROR to msg))
             }
@@ -157,7 +180,11 @@ class BatchEstimationWorker(
         }
     }
 
-    private fun buildProgressNotification(message: String): NotificationCompat.Builder {
+    private fun buildProgressNotification(
+        message: String,
+        done: Int = 0,
+        total: Int = 0
+    ): NotificationCompat.Builder {
         val intent = Intent(applicationContext, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
@@ -167,16 +194,26 @@ class BatchEstimationWorker(
         )
 
         return NotificationCompat.Builder(applicationContext, NOTIFICATION_CHANNEL_ID)
-            .setContentTitle("批量基站推断中...")
+            .setContentTitle(
+                if (total > 0) "批量基站推断中 ($done/$total)" else "批量基站推断中..."
+            )
             .setContentText(message)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
-            .setProgress(0, 0, true)
+            .apply {
+                if (total > 0) setProgress(total, done, false)
+                else setProgress(0, 0, true)
+            }
     }
 
-    private suspend fun updateNotification(message: String, isError: Boolean = false) {
-        val builder = buildProgressNotification(message).apply {
+    private suspend fun updateNotification(
+        message: String,
+        done: Int = 0,
+        total: Int = 0,
+        isError: Boolean = false
+    ) {
+        val builder = buildProgressNotification(message, done, total).apply {
             if (isError) {
                 setOngoing(false)
                 setProgress(0, 0, false)
