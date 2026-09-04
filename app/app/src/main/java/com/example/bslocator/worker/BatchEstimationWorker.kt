@@ -31,7 +31,7 @@ class BatchEstimationWorker(
     companion object {
         const val WORK_TAG = "BatchEstimationWorker"
         const val INPUT_SESSION_IDS = "session_ids"
-        const val OUTPUT_RESULTS_JSON = "results_json"
+        const val OUTPUT_RESULTS_FILE = "results_file"
         const val OUTPUT_SUMMARY = "summary"
         const val OUTPUT_ERROR = "error"
         const val PROGRESS_DONE = "progress_done"
@@ -138,10 +138,17 @@ class BatchEstimationWorker(
 
             if (results.isNotEmpty()) {
                 if (!cancelled) showCompletionNotification(results)
+                // WorkManager 的 Data 上限 10KB，基站多时 JSON 超限，
+                // 结果写入缓存文件，Data 里只传路径
                 val resultsJson = Gson().toJson(results)
+                val outFile = java.io.File(
+                    applicationContext.cacheDir,
+                    "batch_results_${System.currentTimeMillis()}.json"
+                )
+                outFile.writeText(resultsJson)
                 Result.success(
                     androidx.work.workDataOf(
-                        OUTPUT_RESULTS_JSON to resultsJson,
+                        OUTPUT_RESULTS_FILE to outFile.absolutePath,
                         OUTPUT_SUMMARY to summary
                     )
                 )

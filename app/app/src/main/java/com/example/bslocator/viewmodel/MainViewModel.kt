@@ -756,10 +756,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     WorkInfo.State.SUCCEEDED -> {
                         _workProgressMessage.value = "批量推断完成！"
-                        val resultsJson = info.outputData.getString(com.example.bslocator.worker.BatchEstimationWorker.OUTPUT_RESULTS_JSON)
+                        val resultsPath = info.outputData.getString(com.example.bslocator.worker.BatchEstimationWorker.OUTPUT_RESULTS_FILE)
                         val summary = info.outputData.getString(com.example.bslocator.worker.BatchEstimationWorker.OUTPUT_SUMMARY) ?: ""
-                        resultsJson?.let { json ->
+                        resultsPath?.let { p ->
                             try {
+                                // 结果在缓存文件里（WorkManager Data 上限 10KB），读完即删
+                                val file = java.io.File(p)
+                                val json = file.readText()
+                                file.delete()
                                 val batchResults = com.google.gson.Gson().fromJson(
                                     json,
                                     Array<com.example.bslocator.worker.BatchEstimationWorker.BatchResult>::class.java
