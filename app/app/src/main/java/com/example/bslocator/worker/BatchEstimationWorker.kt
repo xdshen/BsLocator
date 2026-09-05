@@ -31,6 +31,7 @@ class BatchEstimationWorker(
     companion object {
         const val WORK_TAG = "BatchEstimationWorker"
         const val INPUT_SESSION_IDS = "session_ids"
+        const val INPUT_USE_TANH = "use_tanh"
         const val OUTPUT_RESULTS_FILE = "results_file"
         const val OUTPUT_SUMMARY = "summary"
         const val OUTPUT_ERROR = "error"
@@ -89,7 +90,11 @@ class BatchEstimationWorker(
             // 3. Run estimation for each ECI (cooperative cancellation between cells)
             val results = mutableListOf<BatchResult>()
             val errors = mutableListOf<String>()
-            val estimator = BaseStationEstimator()
+            val cap = if (inputData.getBoolean(INPUT_USE_TANH, false))
+                BaseStationEstimator.PatternCap.TANH_SMOOTH
+            else
+                BaseStationEstimator.PatternCap.HARD_CLIP
+            val estimator = BaseStationEstimator(cap)
             var processed = 0
             val total = validGroups.size
             var cancelled = false

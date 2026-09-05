@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -41,6 +43,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
@@ -58,6 +61,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -179,6 +183,11 @@ fun EstimateScreen(viewModel: MainViewModel) {
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // 方向图截断模型选择（A/B）
+            ModelCapSelector(viewModel)
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -349,6 +358,83 @@ private fun ExportFormatChip(
         )
     ) {
         Text(label)
+    }
+}
+
+@Composable
+fun ModelCapSelector(viewModel: com.example.bslocator.viewmodel.MainViewModel) {
+    val useTanh by viewModel.useTanhModel
+    var showInfo by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+        )
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "方向图衰减模型",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = { showInfo = true }) {
+                    Text("两者差异？", fontSize = 12.sp)
+                }
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { viewModel.setUseTanhModel(false) }
+                    .padding(vertical = 2.dp)
+            ) {
+                RadioButton(selected = !useTanh, onClick = { viewModel.setUseTanhModel(false) })
+                Column {
+                    Text("A · 经典硬截断（3GPP 标准）", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    Text("整体更稳定，默认推荐", fontSize = 11.sp, color = Color.Gray)
+                }
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { viewModel.setUseTanhModel(true) }
+                    .padding(vertical = 2.dp)
+            ) {
+                RadioButton(selected = useTanh, onClick = { viewModel.setUseTanhModel(true) })
+                Column {
+                    Text("B · 平滑饱和（tanh）", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    Text("近基站采样点多时可能更准", fontSize = 11.sp, color = Color.Gray)
+                }
+            }
+        }
+    }
+
+    if (showInfo) {
+        AlertDialog(
+            onDismissRequest = { showInfo = false },
+            confirmButton = { TextButton(onClick = { showInfo = false }) { Text("知道了") } },
+            title = { Text("A / B 模型差异") },
+            text = {
+                Text(
+                    "3GPP 标准模型在大角度处把衰减硬截断在 30dB：截断区内数学梯度为零，" +
+                    "落在其中的采样点（典型：离基站很近、俯仰角很大的点）对参数估计完全失去作用。\n\n" +
+                    "A · 硬截断：3GPP 原始模型，实测中整体更稳定，推荐默认使用。\n\n" +
+                    "B · 平滑饱和：用 −30·tanh(raw/30) 平滑逼近同一个 30dB 地板，" +
+                    "截断区仍保留梯度信息。当你的采样包含较多近基站（几十米内）的点时可能更准，" +
+                    "但在部分小区上结果会漂移。\n\n" +
+                    "依据：44 个真实小区 A/B 对比实验，总体打平、近距场景 B 占优、" +
+                    "绝对位置 A 更稳定。"
+                )
+            }
+        )
     }
 }
 

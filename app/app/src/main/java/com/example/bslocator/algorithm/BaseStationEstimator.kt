@@ -15,7 +15,16 @@ import kotlin.math.*
  * 5. BS height optimization (bsHeight added to parameter vector)
  * 6. GPS accuracy filtering (discard points with accuracy > 15m)
  */
-class BaseStationEstimator {
+class BaseStationEstimator(
+    private val patternCap: PatternCap = PatternCap.HARD_CLIP
+) {
+
+    /**
+     * 方向图大角度衰减的处理方式：
+     * HARD_CLIP   — 3GPP TR 38.901 原始模型 min[raw, 30dB]，整体更稳定（默认）
+     * TANH_SMOOTH — 平滑饱和 −30·tanh(raw/30)，截断区保留梯度，近基站采样时更优
+     */
+    enum class PatternCap { HARD_CLIP, TANH_SMOOTH }
 
     data class EstimationResult(
         val bsLatitude: Double,
@@ -282,19 +291,21 @@ class BaseStationEstimator {
     }
 
     /**
-     * 4. Antenna pattern model based on 3GPP TR 38.901, with one deliberate
-     * modification: the hard 30 dB attenuation cap (min[raw, 30]) is replaced by
-     * a smooth tanh saturation approaching the same 30 dB floor.
+     * 4. Antenna pattern model based on 3GPP TR 38.901, with two selectable
+     * treatments of the 30 dB attenuation cap (see PatternCap):
      *
-     * Why: the hard cap has zero gradient beyond the knee, so all points in that
-     * region (e.g. measurements taken very close to a site, at high elevation)
-     * carry no information about tilt/beamwidth/height. tanh keeps the 3GPP
-     * shape near boresight, approaches the same floor (empirically ~28-30 dB in
-     * our field data), and preserves gradient information everywhere.
-     * A/B on 44 real cells: no cost overall, clear gains for near-site geometry.
+     * HARD_CLIP:   A(raw) = -min(raw, A_m)            (3GPP original)
+     * TANH_SMOOTH: A(raw) = -A_m * tanh(raw / A_m)    (smooth, keeps gradients)
      *
-     * A(raw) = -A_m * tanh(raw / A_m), raw = 12(theta/theta_3dB)^2
+     * raw = 12(theta/theta_3dB)^2
      */
+    private fun patternGain(raw: Double): Double {
+        return when (patternCap) {
+            PatternCap.HARD_CLIP -> if (raw < MAX_ATTEN) -raw else -MAX_ATTEN
+            PatternCap.TANH_SMOOTH -> -MAX_ATTEN * tanh(raw / MAX_ATTEN)
+        }
+    }
+
     private fun antennaGain3GPP(
         bearing: Double,
         azimuth: Double,
@@ -305,16 +316,16 @@ class BaseStationEstimator {
     ): Double {
         val dAz = normalizeAngle180(bearing - azimuth)
 
-        // Horizontal pattern (smooth saturation)
+        // Horizontal pattern
         val hGainRaw = 12.0 * (dAz / beamwidth).pow(2)
-        val hGain = -MAX_ATTEN * tanh(hGainRaw / MAX_ATTEN)
+        val hGain = patternGain(hGainRaw)
 
-        // Vertical pattern (smooth saturation)
+        // Vertical pattern
         val hDiff = bsHeight - UE_HEIGHT
         val elevation = Math.toDegrees(atan2(hDiff, dist.coerceAtLeast(1.0)))
         val dEl = elevation + tilt
         val vGainRaw = 12.0 * (dEl / V_BEAMWIDTH).pow(2)
-        val vGain = -MAX_ATTEN * tanh(vGainRaw / MAX_ATTEN)
+        val vGain = patternGain(vGainRaw)
 
         // Combined pattern with front-to-back ratio
         val fbr = if (abs(dAz) > 90.0) -FBR else 0.0
@@ -367,14 +378,12 @@ class BaseStationEstimator {
             val elevation = Math.toDegrees(atan2(hDiff, dist.coerceAtLeast(1.0)))
             val dEl = elevation + tilt
 
-            // Predicted RSSI (smooth tanh saturation, see antennaGain3GPP)
+            // Predicted RSSI (pattern cap selectable, see patternGain)
             val pathLoss = p0 - 10.0 * n * log10(dist)
             val hGainRaw = 12.0 * (dAz / beamwidth).pow(2)
-            val hTanh = tanh(hGainRaw / MAX_ATTEN)
-            val hGain = -MAX_ATTEN * hTanh
+            val hGain = patternGain(hGainRaw)
             val vGainRaw = 12.0 * (dEl / V_BEAMWIDTH).pow(2)
-            val vTanh = tanh(vGainRaw / MAX_ATTEN)
-            val vGain = -MAX_ATTEN * vTanh
+            val vGain = patternGain(vGainRaw)
             val fbr = if (abs(dAz) > 90.0) -FBR else 0.0
             val gain = hGain + vGain + fbr
             val pred = pathLoss + gain
@@ -409,19 +418,32 @@ class BaseStationEstimator {
             val delev_dbsX = delev_ddist * ddist_dbsX
             val delev_dbsY = delev_ddist * ddist_dbsY
 
-            // Horizontal gain derivatives.
-            // A = -A_m*tanh(raw/A_m) => dA/draw = -sech^2(raw/A_m), never zero —
-            // points past the knee keep gradient information.
-            val hSech2 = 1.0 - hTanh * hTanh
-            val dhGain_ddAz = -hSech2 * 24.0 * dAz / (beamwidth * beamwidth)
+            // dA/draw by cap type: hard clip → -1 (0 beyond cap, zero-gradient
+            // dead zone); tanh → -sech^2(raw/A_m), never zero
+            val hDGainDraw = when (patternCap) {
+                PatternCap.HARD_CLIP -> if (hGainRaw < MAX_ATTEN) -1.0 else 0.0
+                PatternCap.TANH_SMOOTH -> {
+                    val t = tanh(hGainRaw / MAX_ATTEN)
+                    -(1.0 - t * t)
+                }
+            }
+            val vDGainDraw = when (patternCap) {
+                PatternCap.HARD_CLIP -> if (vGainRaw < MAX_ATTEN) -1.0 else 0.0
+                PatternCap.TANH_SMOOTH -> {
+                    val t = tanh(vGainRaw / MAX_ATTEN)
+                    -(1.0 - t * t)
+                }
+            }
+
+            // Horizontal gain derivatives
+            val dhGain_ddAz = hDGainDraw * 24.0 * dAz / (beamwidth * beamwidth)
             val dhGain_dbsX = dhGain_ddAz * dbearing_dbsX
             val dhGain_dbsY = dhGain_ddAz * dbearing_dbsY
             val dhGain_dazimuth = dhGain_ddAz * ddAz_dazimuth
-            val dhGain_dbw = hSech2 * 24.0 * dAz * dAz / (beamwidth * beamwidth * beamwidth)
+            val dhGain_dbw = hDGainDraw * -24.0 * dAz * dAz / (beamwidth * beamwidth * beamwidth)
 
-            // Vertical gain derivatives (same smooth form)
-            val vSech2 = 1.0 - vTanh * vTanh
-            val dvGain_ddEl = -vSech2 * 24.0 * dEl / (V_BEAMWIDTH * V_BEAMWIDTH)
+            // Vertical gain derivatives
+            val dvGain_ddEl = vDGainDraw * 24.0 * dEl / (V_BEAMWIDTH * V_BEAMWIDTH)
             val dvGain_dbsX = dvGain_ddEl * delev_dbsX
             val dvGain_dbsY = dvGain_ddEl * delev_dbsY
             val dvGain_dtilt = dvGain_ddEl

@@ -33,6 +33,7 @@ class EstimationWorker(
     companion object {
         const val WORK_TAG = "EstimationWorker"
         const val INPUT_ECI = "eci"
+        const val INPUT_USE_TANH = "use_tanh"
         @Deprecated("Use INPUT_ECI instead")
         const val INPUT_PCI = "pci"
         const val OUTPUT_RESULT_JSON = "result_json"
@@ -81,9 +82,13 @@ class EstimationWorker(
                 )
             }
 
-            // 2. Run estimation
+            // 2. Run estimation (pattern-cap model selectable)
             updateNotification("正在推断基站位置和方向图参数... (共 ${measurements.size} 条数据)")
-            val estimator = BaseStationEstimator()
+            val cap = if (inputData.getBoolean(INPUT_USE_TANH, false))
+                BaseStationEstimator.PatternCap.TANH_SMOOTH
+            else
+                BaseStationEstimator.PatternCap.HARD_CLIP
+            val estimator = BaseStationEstimator(cap)
             val result = withContext(Dispatchers.Default) {
                 estimator.estimate(measurements)
             }

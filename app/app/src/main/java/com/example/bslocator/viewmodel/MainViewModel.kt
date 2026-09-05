@@ -48,6 +48,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val workManager = WorkManager.getInstance(application)
 
+    /**
+     * 方向图截断模型选择：false = A 经典硬截断（3GPP，默认，整体更稳定），
+     * true = B 平滑饱和（tanh，近基站采样时可能更准）。持久化到 SharedPreferences。
+     */
+    private val prefs = application.getSharedPreferences("bslocator_prefs", android.content.Context.MODE_PRIVATE)
+    private val _useTanhModel = mutableStateOf(prefs.getBoolean("use_tanh_model", false))
+    val useTanhModel: State<Boolean> = _useTanhModel
+
+    fun setUseTanhModel(useTanh: Boolean) {
+        _useTanhModel.value = useTanh
+        prefs.edit().putBoolean("use_tanh_model", useTanh).apply()
+    }
+
     // WorkManager observer tracking (to prevent memory leaks)
     private var currentWorkObserver: androidx.lifecycle.Observer<WorkInfo>? = null
     private var currentWorkId: java.util.UUID? = null
@@ -443,6 +456,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         val inputData = Data.Builder()
             .putLong(EstimationWorker.INPUT_ECI, eci)
+            .putBoolean(EstimationWorker.INPUT_USE_TANH, _useTanhModel.value)
             .build()
 
         val constraints = Constraints.Builder()
@@ -722,6 +736,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         val inputData = androidx.work.Data.Builder()
             .putLongArray(com.example.bslocator.worker.BatchEstimationWorker.INPUT_SESSION_IDS, sessionIds.toLongArray())
+            .putBoolean(com.example.bslocator.worker.BatchEstimationWorker.INPUT_USE_TANH, _useTanhModel.value)
             .build()
 
         val constraints = Constraints.Builder()
