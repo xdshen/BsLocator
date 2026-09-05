@@ -162,6 +162,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (ids.isEmpty()) emptyList() else all.filter { it.sessionId in ids }
         }
 
+    /**
+     * 地图相机位置（GCJ-02），tab 切换重建 MapView 后用于恢复视角，
+     * 避免用户每次回到地图页都要重新找位置
+     */
+    var mapCameraLat: Double? = null
+    var mapCameraLng: Double? = null
+    var mapCameraZoom: Float? = null
+
+    fun saveMapCamera(lat: Double, lng: Double, zoom: Float) {
+        mapCameraLat = lat
+        mapCameraLng = lng
+        mapCameraZoom = zoom
+    }
+
     val measurements: Flow<List<Measurement>> = dao.getAll()
 
     init {

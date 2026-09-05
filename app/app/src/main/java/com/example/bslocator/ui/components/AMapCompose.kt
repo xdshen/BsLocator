@@ -111,6 +111,8 @@ fun AMapCompose(
     measurements: List<Measurement> = emptyList(),
     bsResults: List<BaseStationEstimator.EstimationResult> = emptyList(),
     onEstimateRequest: (Long) -> Unit = {},
+    restoreCamera: Triple<Double, Double, Float>? = null,
+    onCameraMoved: (Double, Double, Float) -> Unit = { _, _, _ -> },
     onMapReady: ((AMap) -> Unit)? = null
 ) {
     val context = LocalContext.current
@@ -122,6 +124,8 @@ fun AMapCompose(
     // 就绪后用这个状态触发一次重组，保证数据必定被画上（修复重复进入地图页后
     // 覆盖物丢失的问题）
     val mapReady = remember { mutableStateOf(false) }
+    // 相机位置只恢复一次（MapView 首次就绪时）
+    val cameraRestored = remember { mutableStateOf(false) }
 
     DisposableEffect(lifecycleOwner) {
         mapView.onCreate(null)
@@ -155,7 +159,17 @@ fun AMapCompose(
     ) { view ->
         if (mapReady.value) {
             view.map?.let { aMap ->
-                configureMap(aMap, context, overlayState, onEstimateRequest)
+                configureMap(aMap, context, overlayState, onEstimateRequest, onCameraMoved)
+                // tab 切换导致 MapView 重建后，恢复上次的相机位置
+                if (!cameraRestored.value && restoreCamera != null) {
+                    aMap.moveCamera(
+                        CameraUpdateFactory.newLatLngZoom(
+                            LatLng(restoreCamera.first, restoreCamera.second),
+                            restoreCamera.third
+                        )
+                    )
+                }
+                cameraRestored.value = true
                 syncOverlays(aMap, overlayState, measurements, bsResults, context)
                 onMapReady?.invoke(aMap)
             }
@@ -167,7 +181,8 @@ private fun configureMap(
     aMap: AMap,
     context: Context,
     state: MapOverlayState,
-    onEstimateRequest: (Long) -> Unit
+    onEstimateRequest: (Long) -> Unit,
+    onCameraMoved: (Double, Double, Float) -> Unit
 ) {
     val myLocationStyle = MyLocationStyle()
         .myLocationType(MyLocationStyle.LOCATION_TYPE_LOCATION_ROTATE_NO_CENTER)
@@ -216,6 +231,17 @@ private fun configureMap(
         marker.hideInfoWindow()
         state.activeMarker = null
     }
+
+    // 相机移动时保存位置，供 tab 切换后恢复
+    aMap.setOnCameraChangeListener(object : AMap.OnCameraChangeListener {
+        override fun onCameraChange(p0: com.amap.api.maps.model.CameraPosition?) {
+            p0?.let { onCameraMoved(it.target.latitude, it.target.longitude, it.zoom) }
+        }
+
+        override fun onCameraChangeFinish(p0: com.amap.api.maps.model.CameraPosition?) {
+            p0?.let { onCameraMoved(it.target.latitude, it.target.longitude, it.zoom) }
+        }
+    })
 }
 
 /**

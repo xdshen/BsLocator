@@ -191,7 +191,15 @@ fun MapScreen(viewModel: MainViewModel, onEstimateRequest: (Long) -> Unit = {}) 
                     .weight(1f),
                 measurements = measurements,
                 bsResults = estimationResults,
-                onEstimateRequest = onEstimateRequest
+                onEstimateRequest = onEstimateRequest,
+                restoreCamera = viewModel.mapCameraLat?.let { lat ->
+                    viewModel.mapCameraLng?.let { lng ->
+                        Triple(lat, lng, viewModel.mapCameraZoom ?: 15f)
+                    }
+                },
+                onCameraMoved = { lat, lng, zoom ->
+                    viewModel.saveMapCamera(lat, lng, zoom)
+                }
             )
 
             // 底部统计信息栏（紧凑一行）
