@@ -316,6 +316,7 @@ private class MeasurementInfoWindowAdapter(private val context: Context) : AMap.
 
         // BS marker shows different info than measurement markers
         if (infoMap.containsKey("bs_info")) {
+            infoMap["eci"]?.let { addRow("基站 ECI", it) }
             addRow("纬度", infoMap["lat"] ?: "--")
             addRow("经度", infoMap["lng"] ?: "--")
             addRow("方位角", infoMap["azimuth"] ?: "--")
@@ -524,7 +525,9 @@ private fun drawBsResult(
     context: Context,
     index: Int = 0
 ) {
-    val colorInt = BsResultColors[index % BsResultColors.size]
+    // 基站颜色与其采集点颜色保持一致（同一 ECI 同色），无 ECI 时退回序号配色
+    val colorInt = if (result.eci > 0) getCellColor(result.eci)
+    else BsResultColors[index % BsResultColors.size].toInt()
     val gcj = CoordinateTransform.wgs84ToGcj02(result.bsLatitude, result.bsLongitude)
     val bsLatLng = LatLng(gcj.lat, gcj.lng)
 
@@ -549,10 +552,11 @@ private fun drawBsResult(
     }
 
     // ---- 2. 绘制基站位置标记（大号彩色星标）----
-    val bsBitmap = createBsMarkerBitmap(context, colorInt.toInt())
-    val title = "📡 推断基站 #${index + 1}"
+    val bsBitmap = createBsMarkerBitmap(context, colorInt)
+    val title = if (result.eci > 0) "📡 基站 ECI ${result.eci}" else "📡 推断基站 #${index + 1}"
     val infoStr = buildString {
         append("bs_info=true|")
+        if (result.eci > 0) append("eci=${result.eci}|")
         append("lat=${result.bsLatitude.format(6)}°|")
         append("lng=${result.bsLongitude.format(6)}°|")
         append("azimuth=${result.azimuthDeg.format(1)}°|")
