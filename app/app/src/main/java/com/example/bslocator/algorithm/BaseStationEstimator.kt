@@ -282,11 +282,18 @@ class BaseStationEstimator {
     }
 
     /**
-     * 4. 3GPP TR 38.901 antenna pattern model.
+     * 4. Antenna pattern model based on 3GPP TR 38.901, with one deliberate
+     * modification: the hard 30 dB attenuation cap (min[raw, 30]) is replaced by
+     * a smooth tanh saturation approaching the same 30 dB floor.
      *
-     * A_dB(\u03c6,\u03b8) = -min[-(A_H(\u03c6) + A_V(\u03b8)), A_m]
-     * A_H(\u03c6) = -min[12(\u03c6/\u03c6_3dB)^2, 30]
-     * A_V(\u03b8) = -min[12((\u03b8-\u03b8_tilt)/\u03b8_3dB)^2, 30]
+     * Why: the hard cap has zero gradient beyond the knee, so all points in that
+     * region (e.g. measurements taken very close to a site, at high elevation)
+     * carry no information about tilt/beamwidth/height. tanh keeps the 3GPP
+     * shape near boresight, approaches the same floor (empirically ~28-30 dB in
+     * our field data), and preserves gradient information everywhere.
+     * A/B on 44 real cells: no cost overall, clear gains for near-site geometry.
+     *
+     * A(raw) = -A_m * tanh(raw / A_m), raw = 12(theta/theta_3dB)^2
      */
     private fun antennaGain3GPP(
         bearing: Double,
@@ -298,16 +305,16 @@ class BaseStationEstimator {
     ): Double {
         val dAz = normalizeAngle180(bearing - azimuth)
 
-        // Horizontal pattern
+        // Horizontal pattern (smooth saturation)
         val hGainRaw = 12.0 * (dAz / beamwidth).pow(2)
-        val hGain = if (hGainRaw < MAX_ATTEN) -hGainRaw else -MAX_ATTEN
+        val hGain = -MAX_ATTEN * tanh(hGainRaw / MAX_ATTEN)
 
-        // Vertical pattern
+        // Vertical pattern (smooth saturation)
         val hDiff = bsHeight - UE_HEIGHT
         val elevation = Math.toDegrees(atan2(hDiff, dist.coerceAtLeast(1.0)))
         val dEl = elevation + tilt
         val vGainRaw = 12.0 * (dEl / V_BEAMWIDTH).pow(2)
-        val vGain = if (vGainRaw < MAX_ATTEN) -vGainRaw else -MAX_ATTEN
+        val vGain = -MAX_ATTEN * tanh(vGainRaw / MAX_ATTEN)
 
         // Combined pattern with front-to-back ratio
         val fbr = if (abs(dAz) > 90.0) -FBR else 0.0
@@ -360,12 +367,14 @@ class BaseStationEstimator {
             val elevation = Math.toDegrees(atan2(hDiff, dist.coerceAtLeast(1.0)))
             val dEl = elevation + tilt
 
-            // Predicted RSSI
+            // Predicted RSSI (smooth tanh saturation, see antennaGain3GPP)
             val pathLoss = p0 - 10.0 * n * log10(dist)
             val hGainRaw = 12.0 * (dAz / beamwidth).pow(2)
-            val hGain = if (hGainRaw < MAX_ATTEN) -hGainRaw else -MAX_ATTEN
+            val hTanh = tanh(hGainRaw / MAX_ATTEN)
+            val hGain = -MAX_ATTEN * hTanh
             val vGainRaw = 12.0 * (dEl / V_BEAMWIDTH).pow(2)
-            val vGain = if (vGainRaw < MAX_ATTEN) -vGainRaw else -MAX_ATTEN
+            val vTanh = tanh(vGainRaw / MAX_ATTEN)
+            val vGain = -MAX_ATTEN * vTanh
             val fbr = if (abs(dAz) > 90.0) -FBR else 0.0
             val gain = hGain + vGain + fbr
             val pred = pathLoss + gain
@@ -400,43 +409,23 @@ class BaseStationEstimator {
             val delev_dbsX = delev_ddist * ddist_dbsX
             val delev_dbsY = delev_ddist * ddist_dbsY
 
-            // Horizontal gain derivatives (only when not clipped)
-            val dhGain_dbsX: Double
-            val dhGain_dbsY: Double
-            val dhGain_dazimuth: Double
-            val dhGain_dbw: Double
+            // Horizontal gain derivatives.
+            // A = -A_m*tanh(raw/A_m) => dA/draw = -sech^2(raw/A_m), never zero —
+            // points past the knee keep gradient information.
+            val hSech2 = 1.0 - hTanh * hTanh
+            val dhGain_ddAz = -hSech2 * 24.0 * dAz / (beamwidth * beamwidth)
+            val dhGain_dbsX = dhGain_ddAz * dbearing_dbsX
+            val dhGain_dbsY = dhGain_ddAz * dbearing_dbsY
+            val dhGain_dazimuth = dhGain_ddAz * ddAz_dazimuth
+            val dhGain_dbw = hSech2 * 24.0 * dAz * dAz / (beamwidth * beamwidth * beamwidth)
 
-            if (hGainRaw < MAX_ATTEN) {
-                val dhGain_ddAz = -24.0 * dAz / (beamwidth * beamwidth)
-                dhGain_dbsX = dhGain_ddAz * dbearing_dbsX
-                dhGain_dbsY = dhGain_ddAz * dbearing_dbsY
-                dhGain_dazimuth = dhGain_ddAz * ddAz_dazimuth
-                dhGain_dbw = 24.0 * dAz * dAz / (beamwidth * beamwidth * beamwidth)
-            } else {
-                dhGain_dbsX = 0.0
-                dhGain_dbsY = 0.0
-                dhGain_dazimuth = 0.0
-                dhGain_dbw = 0.0
-            }
-
-            // Vertical gain derivatives (only when not clipped)
-            val dvGain_dbsX: Double
-            val dvGain_dbsY: Double
-            val dvGain_dtilt: Double
-            val dvGain_dh: Double
-
-            if (vGainRaw < MAX_ATTEN) {
-                val dvGain_ddEl = -24.0 * dEl / (V_BEAMWIDTH * V_BEAMWIDTH)
-                dvGain_dbsX = dvGain_ddEl * delev_dbsX
-                dvGain_dbsY = dvGain_ddEl * delev_dbsY
-                dvGain_dtilt = dvGain_ddEl  // \u2202dEl/\u2202tilt = 1
-                dvGain_dh = dvGain_ddEl * delev_dh
-            } else {
-                dvGain_dbsX = 0.0
-                dvGain_dbsY = 0.0
-                dvGain_dtilt = 0.0
-                dvGain_dh = 0.0
-            }
+            // Vertical gain derivatives (same smooth form)
+            val vSech2 = 1.0 - vTanh * vTanh
+            val dvGain_ddEl = -vSech2 * 24.0 * dEl / (V_BEAMWIDTH * V_BEAMWIDTH)
+            val dvGain_dbsX = dvGain_ddEl * delev_dbsX
+            val dvGain_dbsY = dvGain_ddEl * delev_dbsY
+            val dvGain_dtilt = dvGain_ddEl
+            val dvGain_dh = dvGain_ddEl * delev_dh
 
             // Path loss derivatives
             val dPL_ddist = -10.0 * n / (dist * ln(10.0))
