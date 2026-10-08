@@ -221,7 +221,15 @@ fun MapScreen(viewModel: MainViewModel, onEstimateRequest: (Long) -> Unit = {}) 
                         StatItem("总点数", "${measurements.size}")
                         StatItem("基站数", "${cellColorMap.size}")
                         StatItem("覆盖距离", "${calculateCoverageDistance(measurements)}m")
-                        StatItem("平均RSRP", "${measurements.map { it.rsrp }.average().toInt()} dBm")
+                        run {
+                            // 剔除 UNAVAILABLE 哨兵值（2147483647）再求平均
+                            val validRsrp = measurements.map { it.rsrp }
+                                .filter { com.example.bslocator.data.Measurement.isSignalValid(it) }
+                            StatItem(
+                                "平均RSRP",
+                                if (validRsrp.isNotEmpty()) "${validRsrp.average().toInt()} dBm" else "--"
+                            )
+                        }
                     }
                 }
             }

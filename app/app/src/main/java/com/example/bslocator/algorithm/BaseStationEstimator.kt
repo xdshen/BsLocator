@@ -58,8 +58,13 @@ class BaseStationEstimator(
      * Main entry: estimate BS position and pattern from measurements.
      */
     fun estimate(measurements: List<Measurement>): EstimationResult? {
-        // 6. GPS accuracy filtering
-        val filtered = measurements.filter { it.gpsAccuracy < MAX_GPS_ACCURACY }
+        // 6. GPS accuracy filtering + UNAVAILABLE-signal filtering
+        // (rsrp == Int.MAX_VALUE is Android's UNAVAILABLE sentinel: those points
+        // carry no signal information and must not enter the fit)
+        val filtered = measurements.filter {
+            it.gpsAccuracy < MAX_GPS_ACCURACY &&
+                    com.example.bslocator.data.Measurement.isSignalValid(it.rsrp)
+        }
         if (filtered.size < MIN_MEASUREMENTS) {
             Log.w(TAG, "Need at least $MIN_MEASUREMENTS valid measurements, got ${filtered.size}")
             return null

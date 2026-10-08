@@ -55,6 +55,7 @@ def load_cells():
             rsrq=g['rsrq'].values.astype(float),
             rssnr=rssnr,
             gps_speed=g['speed'].values.astype(float),
+            lat0=lat0, lng0=lng0,
         )
     return cells
 

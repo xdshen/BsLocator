@@ -103,6 +103,16 @@ data class Measurement(
     companion object {
         const val CSV_HEADER = "timestamp,session_id,eci,pci,earfcn,rsrp,rsrq,latitude,longitude,gps_accuracy"
 
+        /**
+         * Android 信号字段的 UNAVAILABLE 哨兵值（Integer.MAX_VALUE）。
+         * 出现在 RSRP/RSRQ/SINR/CQI 等字段时表示"该次测量无效"，
+         * 统计、显示和估计时都应剔除（不允许参与任何数值计算）。
+         */
+        const val SIGNAL_UNAVAILABLE = Int.MAX_VALUE
+
+        /** 信号值是否有效（非 UNAVAILABLE 哨兵） */
+        fun isSignalValid(value: Int): Boolean = value != SIGNAL_UNAVAILABLE
+
         fun toCsv(measurement: Measurement): String {
             return "${measurement.timestamp},${measurement.sessionId},${measurement.eci},${measurement.pci},${measurement.earfcn}," +
                    "${measurement.rsrp},${measurement.rsrq}," +

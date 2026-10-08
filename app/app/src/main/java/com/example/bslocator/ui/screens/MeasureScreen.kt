@@ -409,6 +409,7 @@ private fun ExportFormatChip(
 @Composable
 fun LatestMeasurementCard(measurement: Measurement) {
     val signalColor = when {
+        !com.example.bslocator.data.Measurement.isSignalValid(measurement.rsrp) -> SignalBad
         measurement.rsrp >= -80 -> SignalExcellent
         measurement.rsrp >= -90 -> SignalGood
         measurement.rsrp >= -100 -> SignalFair
@@ -444,9 +445,17 @@ fun LatestMeasurementCard(measurement: Measurement) {
             Row(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.weight(1f)) {
                     val eciStr = if (measurement.eci >= 0) "ECI:${measurement.eci} " else ""
+                    val sigValid = com.example.bslocator.data.Measurement.isSignalValid(measurement.rsrp)
                     Text("${eciStr}PCI: ${measurement.pci}", fontSize = 14.sp)
-                    Text("RSRP: ${measurement.rsrp} dBm", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                    Text("RSRQ: ${measurement.rsrq} dB", fontSize = 14.sp)
+                    Text(
+                        if (sigValid) "RSRP: ${measurement.rsrp} dBm" else "RSRP: --",
+                        fontSize = 14.sp, fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        if (com.example.bslocator.data.Measurement.isSignalValid(measurement.rsrq))
+                            "RSRQ: ${measurement.rsrq} dB" else "RSRQ: --",
+                        fontSize = 14.sp
+                    )
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Lat: ${measurement.latitude.format(5)}", fontSize = 12.sp)
@@ -482,7 +491,8 @@ fun MeasurementItem(measurement: Measurement) {
                     fontSize = 14.sp
                 )
                 Text(
-                    text = "RSRP ${measurement.rsrp} dBm",
+                    text = if (com.example.bslocator.data.Measurement.isSignalValid(measurement.rsrp))
+                        "RSRP ${measurement.rsrp} dBm" else "RSRP --",
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

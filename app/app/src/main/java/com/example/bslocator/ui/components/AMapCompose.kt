@@ -81,6 +81,8 @@ fun getCellColor(eci: Long): Int {
 }
 
 fun getSignalBrightness(rsrp: Int): Float {
+    // UNAVAILABLE 哨兵点按最低亮度显示
+    if (!com.example.bslocator.data.Measurement.isSignalValid(rsrp)) return 0.38f
     return when {
         rsrp >= -80 -> 1.00f
         rsrp >= -90 -> 0.88f
@@ -472,11 +474,13 @@ private fun addMeasurementMarker(
     val title = "$eciLabel   PCI ${m.pci}"
 
     val infoStr = buildString {
+        fun sig(value: Int, unit: String) =
+            if (com.example.bslocator.data.Measurement.isSignalValid(value)) "$value $unit" else "--"
         append("eci=${m.eci}|")
-        append("rsrp=${m.rsrp} dBm|")
-        append("rsrq=${m.rsrq} dB|")
-        append("sinr=${m.rssnr} dB|")
-        append("cqi=${m.cqi}|")
+        append("rsrp=${sig(m.rsrp, "dBm")}|")
+        append("rsrq=${sig(m.rsrq, "dB")}|")
+        append("sinr=${sig(m.rssnr, "dB")}|")
+        append("cqi=${sig(m.cqi, "")}|")
         append("earfcn=${m.earfcn}|")
         append("tac=${m.tac}|")
         append("coord=${m.latitude.format(5)}, ${m.longitude.format(5)}|")
