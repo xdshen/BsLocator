@@ -2,7 +2,7 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-**[⬇ Download the APK — install on your phone directly](download/BsLocator-v1.0-debug.apk)**
+**[⬇ Download the APK — install on your phone directly](https://github.com/xdshen/BsLocator/releases/latest/download/BsLocator-v1.0-debug.apk)**
 (Android 8.0+, ~40 MB, debug-signed)
 
 > Reverse-engineer the location **and** the antenna radiation pattern of an LTE/NR base station
@@ -99,15 +99,14 @@ distance–RSRP trend and bearing-dependent pattern attenuation:
 ├── analysis/   Offline analysis & figure generation (pandas / scipy / matplotlib)
 ├── assets/     Charts, diagrams and app screenshots used in this README
 ├── data/       Real field-measurement sample (953 records, CSV)
-├── docs/       Research report (Markdown + Word) + detailed algorithm doc (算法详解.md)
-└── download/   Ready-to-install APK
+└── docs/       Research report (Markdown + Word) + detailed algorithm doc (算法详解.md)
 ```
 
 ## Install & use the app
 
 ### 1. Install
 
-1. Download **[BsLocator-v1.0-debug.apk](download/BsLocator-v1.0-debug.apk)**
+1. Download **[BsLocator-v1.0-debug.apk](https://github.com/xdshen/BsLocator/releases/latest/download/BsLocator-v1.0-debug.apk)**
    (on the GitHub page, click the file, then **Download raw file**) — or just open this
    repository on your phone's browser and tap the link
 2. Allow *Install unknown apps* for your browser/file manager when Android asks

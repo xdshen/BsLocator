@@ -2,7 +2,7 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-**[⬇ 下载 APK — 直接在手机上安装](download/BsLocator-v1.0-debug.apk)**
+**[⬇ 下载 APK — 直接在手机上安装](https://github.com/xdshen/BsLocator/releases/latest/download/BsLocator-v1.0-debug.apk)**
 （Android 8.0+，约 40 MB，debug 签名）
 
 > 只靠"绕基站走一圈"的路测数据（GPS + RSRP），就能同时反推出 LTE/NR 基站的
@@ -97,15 +97,14 @@ Armijo 回溯线搜索 + 投影梯度约束，并使用 **4 组多起点初值**
 ├── analysis/   离线分析与图表生成（pandas / scipy / matplotlib）
 ├── assets/     README 使用的图表、原理图与应用截图
 ├── data/       真实路测数据样例（953 条，CSV）
-├── docs/       研究报告（Markdown + Word）+ 算法详解（算法详解.md）及报告生成脚本
-└── download/   可直接安装的 APK
+└── docs/       研究报告（Markdown + Word）+ 算法详解（算法详解.md）及报告生成脚本
 ```
 
 ## 安装与使用
 
 ### 1. 安装
 
-1. 下载 **[BsLocator-v1.0-debug.apk](download/BsLocator-v1.0-debug.apk)**
+1. 下载 **[BsLocator-v1.0-debug.apk](https://github.com/xdshen/BsLocator/releases/latest/download/BsLocator-v1.0-debug.apk)**
    （在 GitHub 页面点开该文件后点 **Download raw file**；或直接用
    手机浏览器打开本仓库点击链接下载）
 2. 按系统提示允许浏览器/文件管理器"安装未知来源应用"

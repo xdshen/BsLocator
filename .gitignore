@@ -12,10 +12,12 @@ local.properties
 captures/
 .externalNativeBuild/
 *.apk
-!download/*.apk
 *.aab
 *.keystore
 !gradle-wrapper.jar
+
+# APK is distributed via GitHub Releases, not the repo
+download/
 
 # ---- Python
 __pycache__/
